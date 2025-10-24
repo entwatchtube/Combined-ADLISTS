@@ -1,24 +1,91 @@
 name: Update Combined Filters
+
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * *'    # daily at 02:00 UTC
   workflow_dispatch: {}
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+
+      - name: Show Python and Git versions
+        run: |
+          python -V
+          git --version
+
+      - name: Install requirements (no-op if none)
+        run: |
+          python -m pip install --upgrade pip || true
+
       - name: Run combiner
-        run: python3 combine_filters.py
-      - name: Commit output
+        run: |
+          chmod +x combine_filters.py || true
+          python3 combine_filters.py
+
+      - name: List workspace for debugging
+        run: |
+          echo "Workdir: $(pwd)"
+          ls -la
+
+      - name: Show combined file head and stats
+        run: |
+          if [ -f combined-filters.txt ]; then
+            echo "combined-filters.txt exists"
+            head -n 40 combined-filters.txt || true
+            echo "---- file stats ----"
+            wc -l combined-filters.txt || true
+            wc -c combined-filters.txt || true
+          else
+            echo "combined-filters.txt NOT FOUND"
+            exit 1
+          fi
+
+      - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git status --porcelain || true
+
+      - name: Stage combined file
+        run: |
           git add combined-filters.txt
-          git commit -m "Auto-update combined filters" || echo "No changes"
-          git push
+          git status --porcelain
+
+      - name: Commit combined file (if changed)
+        run: |
+          if git diff --cached --quiet; then
+            echo "No staged changes to commit"
+          else
+            git commit -m "Auto-update combined filters" --combined-all-paths || git commit -m "Auto-update combined filters" || true
+          fi
+
+      - name: Push changes back to repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # set an authenticated remote so push works even if default origin is read-only
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
+          # Ensure we push to the branch this workflow was triggered on
+          BRANCH="${{ github.ref_name }}"
+          echo "Pushing to branch: ${BRANCH}"
+          git fetch origin ${BRANCH} || true
+          git push origin HEAD:${BRANCH} --force || (echo "Push failed" && git show --name-only --pretty=format:"%h %s" && exit 1)
+
+      - name: Confirm file in repo (list root)
+        run: |
+          echo "Files at repo root after push:"
+          ls -la
