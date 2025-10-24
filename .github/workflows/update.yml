@@ -1,0 +1,24 @@
+name: Update Combined Filters
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch: {}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Run combiner
+        run: python3 combine_filters.py
+      - name: Commit output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add combined-filters.txt
+          git commit -m "Auto-update combined filters" || echo "No changes"
+          git push
