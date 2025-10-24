@@ -1,6 +1,11 @@
-https://filters.adavoid.org/ultimate-ad-filter.txt
-https://filters.adavoid.org/ultimate-privacy-filter.txt
-https://filters.adavoid.org/ultimate-security-filter.txt
+https://cdn.jsdelivr.net/gh/uBlockOrigin/uAssetsCDN@main/filters/filters.min.txt
+https://cdn.statically.io/gh/uBlockOrigin/uAssetsCDN/main/filters/unbreak.min.txt
+https://cdn.statically.io/gh/uBlockOrigin/uAssetsCDN/main/filters/quick-fixes.min.txt
+https://ublockorigin.github.io/uAssets/filters/filters.txt
+https://ublockorigin.github.io/uAssets/filters/privacy.txt
+https://ublockorigin.github.io/uAssets/filters/resource-abuse.txt
+https://ublockorigin.github.io/uAssets/filters/unbreak.txt
+https://ublockorigin.github.io/uAssets/filters/badware.txt
 https://secure.fanboy.co.nz/fanboy-annoyance.txt
 https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.plus.txt
 https://gist.githubusercontent.com/akmeghdad/92fab07573a68a783522f252244244bf/raw/5300f48dd9508a3f987935cc35febacbbc67767b/ak-anti-adblock-killer-filters-list.txt
@@ -8,11 +13,6 @@ https://raw.githubusercontent.com/DandelionSprout/adfilt/refs/heads/master/Annoy
 https://raw.githubusercontent.com/DandelionSprout/adfilt/refs/heads/master/Dandelion%20Sprout's%20Anti-Malware%20List.txt
 https://raw.githubusercontent.com/DandelionSprout/adfilt/refs/heads/master/Alternate%20versions%20Anti-Malware%20List/AntiMalwareDomains.txt
 https://raw.githubusercontent.com/DandelionSprout/adfilt/refs/heads/master/Alternate%20versions%20Anti-Malware%20List/AntiMalwareHosts.txt
-https://ublockorigin.github.io/uAssets/filters/filters.txt
-https://ublockorigin.github.io/uAssets/filters/privacy.txt
-https://ublockorigin.github.io/uAssets/filters/resource-abuse.txt
-https://ublockorigin.github.io/uAssets/filters/unbreak.txt
-https://ublockorigin.github.io/uAssets/filters/badware.txt
 https://easylist.to/easylist/easylist.txt
 https://easylist.to/easylist/easyprivacy.txt
 https://easylist.to/easylist/fanboy-annoyance.txt
@@ -28,3 +28,7 @@ https://raw.githubusercontent.com/Spam404/lists/master/main-blacklist.txt
 https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext
 https://someonewhocares.org/hosts/hosts
 https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+https://raw.githubusercontent.com/DandelionSprout/adfilt/refs/heads/master/AdGuard%20Home%20Compilation%20List/AdGuardHomeCompilationList.txt
+https://filters.adavoid.org/ultimate-ad-filter.txt
+https://filters.adavoid.org/ultimate-privacy-filter.txt
+https://filters.adavoid.org/ultimate-security-filter.txt
