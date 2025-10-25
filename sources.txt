@@ -31,7 +31,6 @@ https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimet
 https://someonewhocares.org/hosts/hosts
 https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
 https://raw.githubusercontent.com/DandelionSprout/adfilt/refs/heads/master/AdGuard%20Home%20Compilation%20List/AdGuardHomeCompilationList.txt
-https://raw.githubusercontent.com/uBlockOrigin/uAssets/refs/heads/master/thirdparties/publicsuffix.org/list/effective_tld_names.dat
 https://filters.adavoid.org/ultimate-ad-filter.txt
 https://filters.adavoid.org/ultimate-privacy-filter.txt
 https://filters.adavoid.org/ultimate-security-filter.txt
