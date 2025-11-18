@@ -1,133 +1,187 @@
 #!/usr/bin/env python3
-# combine_filters.py
-import hashlib
-import re
+"""
+combine_filters.py
+
+- Reads sources.txt (one URL per non-empty line; lines starting with # are ignored)
+- Downloads each URL in parallel with retries and backoff
+- Extracts text content (handles gzip transfer automatically via requests)
+- Normalizes lines, filters out blank lines and pure metadata/comments
+- Deduplicates preserving first-seen order
+- Writes atomically to combined_filters.txt (write to temp file then rename)
+- Exits with non-zero code on fatal errors to allow GitHub Actions to surface failures
+"""
+
+from __future__ import annotations
+import os
 import sys
-from datetime import datetime
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
+import time
+import socket
+import tempfile
+import shutil
+from pathlib import Path
+from typing import List, Iterable, Set
+import concurrent.futures
+import threading
 
-SOURCES_FILE = "sources.txt"
-OUTFILE = "combined-filters.txt"
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+except Exception:
+    print("Missing dependency 'requests'. Please install with: pip install requests", file=sys.stderr)
+    raise
 
-HEAD = [
-    f"! Combined filter list generated {datetime.utcnow().isoformat()}Z",
-    "! Sources listed in sources.txt",
-    "! Normalization: lowercased, collapsed whitespace, hosts -> ||domain^ conversion where applicable",
-    "! --- custom rules below ---",
-    "",
-]
+# Config
+SOURCES_FILE = Path("sources.txt")
+OUTPUT_FILE = Path("combined_filters.txt")
+TEMP_DIR = Path(tempfile.gettempdir())
+USER_AGENT = "combine-filters/1.0 (+https://github.com/)"
+MAX_WORKERS = min(8, (os.cpu_count() or 2) * 2)
+REQUEST_TIMEOUT = (10, 30)  # connect timeout, read timeout in seconds
+MAX_RETRIES = 3
+BACKOFF_FACTOR = 1.0
+VALID_STATUS = {200, 203, 206}
 
-# Regexes for hosts-style lines: "0.0.0.0 example.com" or ":: example.com"
-_RX_HOSTS = re.compile(r'^(?:0\.0\.0\.0|127\.0\.0\.1|::1|\:|::)\s+([^\s#]+)', re.IGNORECASE)
+# Thread-safe add order-preserving set
+class OrderedSet:
+    def __init__(self):
+        self._seen: Set[str] = set()
+        self._lock = threading.Lock()
+        self._items: List[str] = []
 
-def fetch(url, timeout=30):
-    req = Request(url, headers={"User-Agent": "FilterCombiner/1.0"})
+    def add(self, item: str):
+        with self._lock:
+            if item not in self._seen:
+                self._seen.add(item)
+                self._items.append(item)
+
+    def extend(self, items: Iterable[str]):
+        for it in items:
+            self.add(it)
+
+    def items(self) -> List[str]:
+        return list(self._items)
+
+def build_session() -> requests.Session:
+    s = requests.Session()
+    retries = Retry(
+        total=MAX_RETRIES,
+        backoff_factor=BACKOFF_FACTOR,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["HEAD", "GET", "OPTIONS"])
+    )
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=MAX_WORKERS, pool_maxsize=MAX_WORKERS)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    s.headers.update({"User-Agent": USER_AGENT, "Accept-Encoding": "gzip, deflate"})
+    # reduce DNS related hangs
+    s.timeout = REQUEST_TIMEOUT
+    return s
+
+def read_sources(path: Path) -> List[str]:
+    if not path.exists():
+        print(f"Sources file not found: {path}", file=sys.stderr)
+        sys.exit(2)
+    urls: List[str] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            # allow inline comments after url separated by whitespace
+            parts = line.split()
+            url = parts[0]
+            if url.startswith("http://") or url.startswith("https://"):
+                urls.append(url)
+    return urls
+
+def sanitize_line(line: str) -> str:
+    # Normalize whitespace, strip trailing/leading spaces and control chars
+    return line.rstrip("\r\n")
+
+def filter_keep_line(line: str) -> bool:
+    # Keep filter rules and whitelist rules; skip pure metadata lines that are not filter rules.
+    l = line.strip()
+    if not l:
+        return False
+    # Many lists use "!" (Adblock) or "[" sections; skip unless rule-like
+    if l.startswith("!") or l.startswith("["):
+        return False
+    # Some lists include comments after rules; keep the whole line
+    # Some lists use final blank lines or metadata lines; skip if too short
+    if len(l) < 3:
+        return False
+    return True
+
+def parse_text_into_lines(text: str) -> List[str]:
+    out: List[str] = []
+    for raw in text.splitlines():
+        line = sanitize_line(raw)
+        if filter_keep_line(line):
+            out.append(line)
+    return out
+
+def fetch_url(session: requests.Session, url: str) -> List[str]:
     try:
-        with urlopen(req, timeout=timeout) as r:
-            return r.read().decode("utf-8", errors="ignore")
-    except (HTTPError, URLError) as e:
-        print(f"Warning: failed to fetch {url}: {e}", file=sys.stderr)
-        return ""
+        r = session.get(url, timeout=REQUEST_TIMEOUT)
+        if r.status_code not in VALID_STATUS:
+            print(f"WARN: {url} returned status {r.status_code}, skipping", file=sys.stderr)
+            return []
+        content_type = r.headers.get("Content-Type", "")
+        # assume text content; decode using requests' encoding detection
+        text = r.text
+        return parse_text_into_lines(text)
+    except requests.RequestException as e:
+        print(f"ERROR fetching {url}: {e}", file=sys.stderr)
+        return []
 
-def normalize(line):
-    # strip comments that start with '!' or '#', but keep inline # for CSS selectors
-    line = line.strip()
-    if not line:
-        return ""
-    # Full-line comments for adblock lists often start with '!' or '['
-    if line.startswith("!") or line.startswith("["):
-        return ""
-    # Remove inline comments for hosts format (# ...)
-    if line.startswith("#"):
-        return ""
-    # Handle hosts-style lines: convert to adblock network rule
-    m = _RX_HOSTS.match(line)
-    if m:
-        domain = m.group(1).strip().lower()
-        # drop trailing dot
-        domain = domain.rstrip('.')
-        if domain:
-            return f"||{domain}^"
-        return ""
-    # For plain lines that look like IP or host entries with domain second
-    parts = line.split()
-    if len(parts) >= 2 and (parts[0].count('.') >= 1 and re.match(r'^[A-Za-z0-9.-]+$', parts[1])):
-        # probable hosts-like: convert
-        domain = parts[1].strip().lower().rstrip('.')
-        return f"||{domain}^"
+def combine_all(urls: List[str]) -> List[str]:
+    session = build_session()
+    ordered = OrderedSet()
+    if not urls:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {ex.submit(fetch_url, session, u): u for u in urls}
+        for fut in concurrent.futures.as_completed(futures):
+            src = futures[fut]
+            try:
+                lines = fut.result()
+                ordered.extend(lines)
+                print(f"Fetched {len(lines)} lines from {src}")
+            except Exception as e:
+                print(f"ERROR processing {src}: {e}", file=sys.stderr)
+    return ordered.items()
 
-    # collapse multiple spaces and lower-case
-    line = re.sub(r'\s+', ' ', line).lower()
-
-    # normalize certain common adblock options where order is irrelevant:
-    # split off options after $ and sort options set (basic best-effort)
-    if '$' in line and line.count('$') == 1:
-        main, opts = line.split('$', 1)
-        opts = opts.strip()
-        # options like third-party,script,domain=...
-        opts_parts = [o.strip() for o in opts.split(',') if o.strip()]
-        # sort to stabilize order (note: this is a heuristic)
-        opts_parts_sorted = sorted(opts_parts)
-        line = main.strip() + '$' + ','.join(opts_parts_sorted)
-
-    return line.strip()
-
-def canonical_key(line):
-    # produce a stable key for deduplication
-    # use SHA1 of normalized line
-    return hashlib.sha1(line.encode('utf-8')).hexdigest()
+def atomic_write(path: Path, lines: List[str]):
+    # write to temp file then move.
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8", newline="\n") as f:
+        for ln in lines:
+            f.write(ln + "\n")
+    # fsync to ensure durability
+    try:
+        fd = tmp.open("r+", encoding="utf-8")
+        fd.flush()
+        os.fsync(fd.fileno())
+        fd.close()
+    except Exception:
+        pass
+    tmp.replace(path)
 
 def main():
+    # Ensure predictable DNS and sockets timeouts
+    socket.setdefaulttimeout(60)
+    urls = read_sources(SOURCES_FILE)
+    print(f"Found {len(urls)} sources")
+    combined = combine_all(urls)
+    print(f"Total unique rules: {len(combined)}")
+    # Overwrite file atomically
     try:
-        with open(SOURCES_FILE, 'r', encoding='utf-8') as f:
-            sources = [l.strip() for l in f if l.strip() and not l.strip().startswith('#')]
-    except FileNotFoundError:
-        print("sources.txt not found", file=sys.stderr)
-        return
-
-    seen = set()
-    out_lines = []
-    out_lines.extend(HEAD)
-
-    # optional custom overrides (kept first)
-    custom_overrides = [
-        # add lines you want to force first, e.g. allow rules or site-specific exceptions
-        # "@@||example.com^$document"
-    ]
-    for r in custom_overrides:
-        r2 = normalize(r)
-        if not r2:
-            continue
-        key = canonical_key(r2)
-        if key not in seen:
-            out_lines.append(r2)
-            seen.add(key)
-
-    for url in sources:
-        print(f"Fetching {url}", file=sys.stderr)
-        text = fetch(url)
-        if not text:
-            continue
-        for raw in text.splitlines():
-            n = normalize(raw)
-            if not n:
-                continue
-            key = canonical_key(n)
-            if key in seen:
-                continue
-            seen.add(key)
-            out_lines.append(n)
-
-    data = "\n".join(out_lines) + "\n"
-    try:
-        with open(OUTFILE, 'w', encoding='utf-8') as f:
-            f.write(data)
+        atomic_write(OUTPUT_FILE, combined)
+        print(f"Wrote {OUTPUT_FILE} ({len(combined)} lines)")
     except Exception as e:
-        print(f"Error writing {OUTFILE}: {e}", file=sys.stderr)
-        return
+        print(f"FATAL: cannot write output: {e}", file=sys.stderr)
+        sys.exit(3)
 
-    print(f"Wrote {len(out_lines)} lines to {OUTFILE}", file=sys.stderr)
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
