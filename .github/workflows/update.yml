@@ -2,7 +2,7 @@ name: Daily Combine Adblock Filters
 
 on:
   schedule:
-    - cron: '30 18 * * *' # 00:00 IST daily
+    - cron: '30 18 * * *' # runs at 00:00 IST daily
   workflow_dispatch:
 
 permissions:
@@ -25,24 +25,25 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Show working directory and files (debug)
+      - name: Show environment (debug)
         run: |
           echo "PWD: $(pwd)"
           echo "Python: $(which python) -> $(python --version)"
+          python -m site
           ls -la
 
-      - name: Ensure requirements.txt exists (fail early if missing)
+      - name: Ensure requirements.txt exists
         run: |
           if [ ! -f requirements.txt ]; then
             echo "Missing requirements.txt at repo root" >&2
             exit 1
           fi
-          echo "requirements.txt present"
+          echo "requirements.txt content:"
           sed -n '1,200p' requirements.txt
 
       - name: Cache pip
@@ -53,12 +54,14 @@ jobs:
           restore-keys: |
             pip-cache-${{ runner.os }}-
 
-      - name: Install Python dependencies (explicit python -m pip)
+      - name: Install Python dependencies (explicit)
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -r requirements.txt
+          python -m pip install --no-cache-dir -r requirements.txt
+          echo "pip install exit code: $?"
+          python -m pip list
 
-      - name: Verify requests is importable
+      - name: Verify requests importable (will fail clearly if not)
         run: |
           python - <<'PY'
           try:
@@ -76,8 +79,8 @@ jobs:
       - name: Show combined_filters.txt summary
         run: |
           if [ -f combined_filters.txt ]; then
-            echo "combined_filters.txt exists; first 5 lines:"
-            head -n 5 combined_filters.txt || true
+            echo "combined_filters.txt exists; first 10 lines:"
+            head -n 10 combined_filters.txt || true
             echo "total lines:"
             wc -l combined_filters.txt || true
           else
