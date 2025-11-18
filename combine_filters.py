@@ -33,7 +33,7 @@ except Exception:
 
 # Config
 SOURCES_FILE = Path("sources.txt")
-OUTPUT_FILE = Path("combined_filters.txt")
+OUTPUT_FILE = Path("combined-filters.txt")
 TEMP_DIR = Path(tempfile.gettempdir())
 USER_AGENT = "combine-filters/1.0 (+https://github.com/)"
 MAX_WORKERS = min(8, (os.cpu_count() or 2) * 2)
