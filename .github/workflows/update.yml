@@ -25,46 +25,65 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup Python
+      - name: Setup Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Show repo root (debug)
+      - name: Show working directory and files (debug)
         run: |
-          echo "Working directory: $(pwd)"
-          echo "Repo files:"
+          echo "PWD: $(pwd)"
+          echo "Python: $(which python) -> $(python --version)"
           ls -la
+
+      - name: Ensure requirements.txt exists (fail early if missing)
+        run: |
+          if [ ! -f requirements.txt ]; then
+            echo "Missing requirements.txt at repo root" >&2
+            exit 1
+          fi
+          echo "requirements.txt present"
+          sed -n '1,200p' requirements.txt
 
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-cache-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
+          key: pip-cache-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             pip-cache-${{ runner.os }}-
 
-      - name: Show requirements.txt (debug)
+      - name: Install Python dependencies (explicit python -m pip)
         run: |
-          if [ -f requirements.txt ]; then
-            echo "requirements.txt found:"
-            sed -n '1,200p' requirements.txt
-          else
-            echo "requirements.txt NOT found at repo root"
-            ls -la
-            exit 1
-          fi
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
 
-      - name: Install dependencies
+      - name: Verify requests is importable
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt --no-cache-dir
-          echo "Installed packages:"
-          python -m pip list
+          python - <<'PY'
+          try:
+              import requests
+              print("requests OK:", requests.__version__)
+          except Exception as e:
+              print("requests import failed:", e)
+              raise SystemExit(2)
+          PY
 
       - name: Run combine script
         run: |
           python combine_filters.py
+
+      - name: Show combined_filters.txt summary
+        run: |
+          if [ -f combined_filters.txt ]; then
+            echo "combined_filters.txt exists; first 5 lines:"
+            head -n 5 combined_filters.txt || true
+            echo "total lines:"
+            wc -l combined_filters.txt || true
+          else
+            echo "combined_filters.txt missing" >&2
+            exit 1
+          fi
 
       - name: Commit and push combined_filters.txt
         run: |
