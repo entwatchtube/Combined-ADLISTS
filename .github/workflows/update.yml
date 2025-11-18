@@ -1,91 +1,54 @@
-name: Update Combined Filters
+name: Daily Combine Adblock Filters
 
 on:
   schedule:
-    - cron: '0 2 * * *'    # daily at 02:00 UTC
-  workflow_dispatch: {}
+    # 00:00 IST is 18:30 UTC previous day; run daily
+    - cron: '30 18 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: combine-filters
+  cancel-in-progress: true
+
 jobs:
-  build:
+  combine:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
-      - name: Show Python and Git versions
+      - name: Install dependencies
         run: |
-          python -V
-          git --version
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+        # requirements.txt optional; script will vendor needed std libs but allow extras
 
-      - name: Install requirements (no-op if none)
-        run: |
-          python -m pip install --upgrade pip || true
-
-      - name: Run combiner
-        run: |
-          chmod +x combine_filters.py || true
-          python3 combine_filters.py
-
-      - name: List workspace for debugging
-        run: |
-          echo "Workdir: $(pwd)"
-          ls -la
-
-      - name: Show combined file head and stats
-        run: |
-          if [ -f combined-filters.txt ]; then
-            echo "combined-filters.txt exists"
-            head -n 40 combined-filters.txt || true
-            echo "---- file stats ----"
-            wc -l combined-filters.txt || true
-            wc -c combined-filters.txt || true
-          else
-            echo "combined-filters.txt NOT FOUND"
-            exit 1
-          fi
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git status --porcelain || true
-
-      - name: Stage combined file
-        run: |
-          git add combined-filters.txt
-          git status --porcelain
-
-      - name: Commit combined file (if changed)
-        run: |
-          if git diff --cached --quiet; then
-            echo "No staged changes to commit"
-          else
-            git commit -m "Auto-update combined filters" --combined-all-paths || git commit -m "Auto-update combined filters" || true
-          fi
-
-      - name: Push changes back to repo
+      - name: Run combine script
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TZ: Asia/Kolkata
         run: |
-          # set an authenticated remote so push works even if default origin is read-only
-          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
-          # Ensure we push to the branch this workflow was triggered on
-          BRANCH="${{ github.ref_name }}"
-          echo "Pushing to branch: ${BRANCH}"
-          git fetch origin ${BRANCH} || true
-          git push origin HEAD:${BRANCH} --force || (echo "Push failed" && git show --name-only --pretty=format:"%h %s" && exit 1)
+          python combine_filters.py
 
-      - name: Confirm file in repo (list root)
+      - name: Commit and push combined_filters.txt
         run: |
-          echo "Files at repo root after push:"
-          ls -la
+          if [[ -n "$(git status --porcelain combined_filters.txt)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add combined_filters.txt
+            git commit -m "chore: update combined_filters.txt (daily)"
+            git push
+          else
+            echo "No changes to combined_filters.txt"
+          fi
