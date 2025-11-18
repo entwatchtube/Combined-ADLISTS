@@ -82,26 +82,26 @@ jobs:
         run: |
           python combine_filters.py
 
-      - name: Show combined_filters.txt summary
+      - name: Show combined-filters.txt summary
         run: |
-          if [ -f combined_filters.txt ]; then
-            echo "combined_filters.txt exists; first 10 lines:"
-            head -n 10 combined_filters.txt || true
+          if [ -f combined-filters.txt ]; then
+            echo "combined-filters.txt exists; first 10 lines:"
+            head -n 10 combined-filters.txt || true
             echo "total lines:"
-            wc -l combined_filters.txt || true
+            wc -l combined-filters.txt || true
           else
-            echo "combined_filters.txt missing" >&2
+            echo "combined-filters.txt missing" >&2
             exit 1
           fi
 
-      - name: Commit and push combined_filters.txt
+      - name: Commit and push combined-filters.txt
         run: |
-          if [[ -n "$(git status --porcelain combined_filters.txt)" ]]; then
+          if [[ -n "$(git status --porcelain combined-filters.txt)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add combined_filters.txt
-            git commit -m "chore: update combined_filters.txt (daily)"
+            git add combined-filters.txt
+            git commit -m "chore: update combined-filters.txt (daily)"
             git push
           else
-            echo "No changes to combined_filters.txt"
+            echo "No changes to combined-filters.txt"
           fi
