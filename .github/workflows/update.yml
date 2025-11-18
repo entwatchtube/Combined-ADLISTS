@@ -2,7 +2,7 @@ name: Daily Combine Adblock Filters
 
 on:
   schedule:
-    - cron: '30 18 * * *' # runs at 00:00 IST daily
+    - cron: '30 18 * * *' # 00:00 IST daily
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup Python
+      - name: Setup Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
@@ -37,32 +37,38 @@ jobs:
           python -m site
           ls -la
 
-      - name: Ensure requirements.txt exists
+      - name: Ensure requirements.txt exists (optional)
         run: |
-          if [ ! -f requirements.txt ]; then
-            echo "Missing requirements.txt at repo root" >&2
-            exit 1
+          if [ -f requirements.txt ]; then
+            echo "requirements.txt found (top 200 lines):"
+            sed -n '1,200p' requirements.txt
+          else
+            echo "requirements.txt not found; will install 'requests' explicitly"
           fi
-          echo "requirements.txt content:"
-          sed -n '1,200p' requirements.txt
 
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-cache-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          key: pip-cache-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             pip-cache-${{ runner.os }}-
 
-      - name: Install Python dependencies (explicit)
+      - name: Install Python dependencies (explicit + fallback)
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install --no-cache-dir -r requirements.txt
-          echo "pip install exit code: $?"
+          if [ -f requirements.txt ]; then
+            python -m pip install --no-cache-dir -r requirements.txt
+          else
+            python -m pip install --no-cache-dir requests
+          fi
+          echo "Installed packages:"
           python -m pip list
 
-      - name: Verify requests importable (will fail clearly if not)
+      - name: Force-install requests (guarantee)
         run: |
+          python -m pip install --no-cache-dir --force-reinstall requests
+          echo "requests reinstall done."
           python - <<'PY'
           try:
               import requests
