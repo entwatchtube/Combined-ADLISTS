@@ -7,7 +7,7 @@ combine_filters.py
 - Extracts text content (handles gzip transfer automatically via requests)
 - Normalizes lines, filters out blank lines and pure metadata/comments
 - Deduplicates preserving first-seen order
-- Writes atomically to combined_filters.txt (write to temp file then rename)
+- Writes atomically to combined-filters.txt (write to temp file then rename)
 - Exits with non-zero code on fatal errors to allow GitHub Actions to surface failures
 """
 
